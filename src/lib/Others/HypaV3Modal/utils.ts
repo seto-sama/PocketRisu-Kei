@@ -1,4 +1,5 @@
 import { get } from "svelte/store";
+import type { Attachment } from "svelte/attachments";
 import { getChatPage } from 'src/ts/storage/chatSelection.svelte';
 
 import { parseChatDisplayMessage, processScriptFull, risuChatParser } from "src/ts/process/scripts";
@@ -30,10 +31,7 @@ export type DualActionParams = {
   onAlternativeAction?: () => void;
 };
 
-export function handleDualAction(
-  element: HTMLElement,
-  params: DualActionParams = {}
-) {
+export const handleDualAction = (params: DualActionParams): Attachment<HTMLElement> => (element) => {
   const DOUBLE_TAP_DELAY = 300;
   const isTouch = "ontouchend" in window;
   let lastTap = 0;
@@ -64,17 +62,12 @@ export function handleDualAction(
   if (isTouch) element.addEventListener("touchend", handleTouch);
   else element.addEventListener("click", handleClick);
 
-  return {
-    destroy() {
-      if (isTouch) element.removeEventListener("touchend", handleTouch);
-      else element.removeEventListener("click", handleClick);
-      window.clearTimeout(tapTimeout);
-    },
-    update(newParams: DualActionParams) {
-      params = newParams;
-    },
+  return () => {
+    if (isTouch) element.removeEventListener("touchend", handleTouch);
+    else element.removeEventListener("click", handleClick);
+    window.clearTimeout(tapTimeout);
   };
-}
+};
 
 export function getFirstMessage(): string | null {
   const char = DBState.db.characters[get(selectedCharID)];

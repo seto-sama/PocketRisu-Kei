@@ -118,7 +118,7 @@
                 sort: 'recommended'
             }) then charas}
             {#if charas.length > 0}
-              {@const visibleCharas = filterMutedRealmCharacters(charas, $realmMuteStore)}
+              {const visibleCharas = $derived(filterMutedRealmCharacters(charas, $realmMuteStore))}
               {@html hubAdditionalHTML}
               {#if realmViewMode === 'icons'}
                 <HorizontalMasonry itemCount={visibleCharas.length} className="py-2">

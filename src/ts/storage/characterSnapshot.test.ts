@@ -10,7 +10,7 @@ vi.mock('../../lang', () => ({ language: {}, changeLanguage: vi.fn() }))
 vi.mock('../process/modules', () => ({ moduleUpdate: vi.fn() }))
 vi.mock('../gui/deepTouch.svelte', () => ({ deepTouch: vi.fn() }))
 vi.mock('../process/scripts', () => ({ resetScriptCache: vi.fn() }))
-vi.mock('../gui/breakpoints', () => ({ lgViewport: { matches: () => false } }))
+vi.mock('../gui/breakpoints', () => ({ lgViewport: { current: false } }))
 
 const { getCharacterByIndex, getCurrentCharacter, getDatabase } = await import('./database.svelte')
 const { DBState, selectedCharID } = await import('../stores.svelte')

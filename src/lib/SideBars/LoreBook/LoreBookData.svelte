@@ -54,7 +54,7 @@
     let open = $derived(isOpen)
     const showEntryDivider = $derived(value.mode !== 'folder' && open && !isLastInContainer)
     const itemIconSize = iconButtonSizeValues.default.icon
-    const mobile = $derived(!$mdViewport)
+    const mobile = $derived(!mdViewport.current)
 
     function isLocallyActivated(book: loreBook){
         return book.id ? getCurrentChat()?.localLore.some(e => e.id === book.id) : false

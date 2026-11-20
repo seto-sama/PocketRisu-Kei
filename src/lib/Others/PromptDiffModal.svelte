@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onDestroy } from "svelte"
+    import { getAbortSignal } from "svelte"
     import { XIcon } from "@lucide/svelte"
     import { getDatabase, type PromptDiffPrefs } from "../../ts/storage/database.svelte"
     import type { PromptItem } from "src/ts/process/prompt";
@@ -243,7 +243,7 @@
     $effect(() => {
         diffStyle
         expandedRanges = []
-        void recomputeDiff(firstCards, secondCards)
+        void recomputeDiff(firstCards, secondCards, getAbortSignal())
     })
 
     $effect(() => {
@@ -381,17 +381,9 @@
 
 // Diff core
 // -----------------------------------------------------------------------------
-    let diffRunId = 0
-
-    onDestroy(() => {
-        diffRunId++
-    })
-
-    async function recomputeDiff(firstCards: PromptCard[], secondCards: PromptCard[]) {
-        const runId = ++diffRunId
-
+    async function recomputeDiff(firstCards: PromptCard[], secondCards: PromptCard[], signal: AbortSignal) {
         const cr = await computeCardViewDiff(firstCards, secondCards, diffStyle)
-        if (runId !== diffRunId) return
+        if (signal.aborted) return
         cardDiffResult = cr
     }
 
@@ -1133,7 +1125,7 @@
 {/snippet}
 
 {#snippet renderModify(part: ModifyPart, idx: number)}
-  {@const tag = tagText(part)}
+  {const tag = $derived(tagText(part))}
   {#if diffStyle === 'line'}
     <!-- line diff -->
     <div
@@ -1292,7 +1284,7 @@
 {/snippet}
 
 {#snippet renderSplitCell(cell: SplitCell, idx: number)}
-  {@const role = cell.role}
+  {const role = $derived(cell.role)}
     {#if cell.kind === 'empty'}
       <div
         class={splitEmptyLineClass}
@@ -1303,17 +1295,17 @@
       </div>
 
   {:else}
-    {@const part = cell.part}
-    {@const side = cell.side}
-    {@const isLeft = side === 'left'}
+    {const part = $derived(cell.part)}
+    {const side = $derived(cell.side)}
+    {const isLeft = $derived(side === 'left')}
 
     {#if part.k !== 'modify'}
       {@render renderSimpleLine(part)}
 
     {:else}
-      {@const tag = tagText(part)}
-      {@const sideText =
-        isLineby(part) ? (isLeft ? part.left.text : part.right.text) : null}
+      {const tag = $derived(tagText(part))}
+      {const sideText =
+        $derived(isLineby(part) ? (isLeft ? part.left.text : part.right.text) : null)}
 
       <div
         class={`whitespace-pre-wrap ${isLeft ? lineRemoveClass : lineAddClass}`}
@@ -1335,14 +1327,14 @@
 {/snippet}
 
 {#snippet renderCardStatus(cardPart: CardBodyDiff)}
-  {@const c = cardPart.bodyLines.counts}
-  {@const cardChangeCount = c.modifiedCount + c.addedCount + c.removedCount}
+  {const c = $derived(cardPart.bodyLines.counts)}
+  {const cardChangeCount = $derived(c.modifiedCount + c.addedCount + c.removedCount)}
 
-  {@const statusLabel =
-    cardPart.k === 'modify' ? language.promptDiff.modified
+  {const statusLabel =
+    $derived(cardPart.k === 'modify' ? language.promptDiff.modified
     : cardPart.k === 'add'  ? language.promptDiff.added
     : cardPart.k === 'remove' ? language.promptDiff.removed
-    : language.promptDiff.unchanged}
+    : language.promptDiff.unchanged)}
 
   <div class="flex flex-col items-end gap-1 shrink-0">
     <Badge
@@ -1436,10 +1428,10 @@
           <div class="grid gap-3">
             {#each visibleCardParts as cardPart, idx (idx)}
               {#if viewStyle === 'unified'}
-              {@const lines = cardPart.bodyLines.parts}
-              {@const namePart = lines[0]}
-              {@const headerPart = lines[1]}
-              {@const bodyParts = lines.slice(2)}
+              {const lines = $derived(cardPart.bodyLines.parts)}
+              {const namePart = $derived(lines[0])}
+              {const headerPart = $derived(lines[1])}
+              {const bodyParts = $derived(lines.slice(2))}
 
               <div class="prompt-diff-hover bg-lightbg border border-darkborderc rounded-xl p-3 flex flex-col gap-2">
                 <!-- name / header / card diff -->
@@ -1456,7 +1448,7 @@
                   {#if bodyParts.length === 0}
                     <div class="text-subtext italic">{language.promptDiff.noBodyContent}</div>
                   {:else}
-                    {@const segments = buildSegments(bodyParts, { showOnlyChanges, contextRadius, scope: `card-${idx}`, expandedRanges })}
+                    {const segments = $derived(buildSegments(bodyParts, { showOnlyChanges, contextRadius, scope: `card-${idx}`, expandedRanges }))}
                     {#each segments as seg, sIdx (sIdx)}
                       {#if seg.kind === 'divider'}
                         {@render renderDivider(seg, `card-${idx}`)}
@@ -1467,10 +1459,10 @@
                           {/if}
                         {/each}
                       {:else} <!-- change segment -->
-                        {@const lines = buildLines(seg.parts)}
+                        {const lines = $derived(buildLines(seg.parts))}
                         {#each lines as line, idx (idx)}
                           {#if line.kind === 'simple'}
-                          {@const part = line.part}
+                          {const part = $derived(line.part)}
                             {#if part.k !== 'modify'}
                               {@render renderSimpleLine(part)}
                             {:else}
@@ -1486,17 +1478,17 @@
                 </div>
               </div>
               {:else} <!-- split view -->
-                {@const scope = `card-${idx}`}
-                {@const lines = cardPart.bodyLines.parts}
-                {@const namePart = lines[0] ?? null}
-                {@const headerPart = lines[1] ?? null}
-                {@const bodyParts = lines.slice(2)}
+                {const scope = $derived(`card-${idx}`)}
+                {const lines = $derived(cardPart.bodyLines.parts)}
+                {const namePart = $derived(lines[0] ?? null)}
+                {const headerPart = $derived(lines[1] ?? null)}
+                {const bodyParts = $derived(lines.slice(2))}
 
-                {@const leftExists = cardPart.k !== 'add'}
-                {@const rightExists = cardPart.k !== 'remove'}
+                {const leftExists = $derived(cardPart.k !== 'add')}
+                {const rightExists = $derived(cardPart.k !== 'remove')}
 
-                {@const segments = buildSegments(bodyParts, { showOnlyChanges, contextRadius, scope, expandedRanges })}
-                {@const rows = toSplitRows(segments, scope)}
+                {const segments = $derived(buildSegments(bodyParts, { showOnlyChanges, contextRadius, scope, expandedRanges }))}
+                {const rows = $derived(toSplitRows(segments, scope))}
 
                 <div class="relative">
                   <div class="absolute inset-0 grid grid-cols-2 gap-x-3 pointer-events-none">
@@ -1569,7 +1561,7 @@
         {/if}
       {:else}<!-- raw view -->
         {#if cardlineFlatResult}
-          {@const segments = buildSegments(cardlineFlatResult.parts, { showOnlyChanges, contextRadius, scope: 'raw', expandedRanges })}
+          {const segments = $derived(buildSegments(cardlineFlatResult.parts, { showOnlyChanges, contextRadius, scope: 'raw', expandedRanges }))}
           {@render renderCounts(cardlineFlatResult.counts)}
 
           {#if showOnlyChanges && segments.length === 0}
@@ -1591,10 +1583,10 @@
                   {/if}
                 {/each}
               {:else} <!-- change segment -->
-                {@const lines = buildLines(seg.parts)}
+                {const lines = $derived(buildLines(seg.parts))}
                 {#each lines as line, idx (idx)}
                   {#if line.kind === 'simple'}
-                    {@const part = line.part}
+                    {const part = $derived(line.part)}
                     {#if part.k !== 'modify'}
                       {@render renderSimpleLine(part)}
                     {:else}
@@ -1608,7 +1600,7 @@
             {/each}
           </div>
           {:else} <!-- split view -->
-            {@const rows = toSplitRows(segments, 'raw')}
+            {const rows = $derived(toSplitRows(segments, 'raw'))}
             <div class="rounded-xl border border-darkborderc bg-lightbg overflow-hidden">
               <div class="grid grid-cols-[1fr_auto_1fr] gap-0 font-mono text-sm leading-5">
                 {#each rows as r, idx (r.key)}

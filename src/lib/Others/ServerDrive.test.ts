@@ -7,8 +7,7 @@ import { DRIVE_TRASH_DIRECTORY as trashPath } from 'src/ts/trashRetention'
 import { apiErrorCodes } from 'src/ts/network/apiError'
 import { SaveConflictCancelledError } from 'src/ts/storage/saveConflict'
 
-const { storage, notifyError, mdViewport, chooseConflictComparison, importFile, getCharacterImageFormat, showPopupEditor } = await vi.hoisted(async () => {
-    const { writable } = await import('svelte/store')
+const { storage, notifyError, mdViewport, chooseConflictComparison, importFile, getCharacterImageFormat, showPopupEditor } = vi.hoisted(() => {
     return {
         storage: {
             listDrive: vi.fn(), driveMetadata: vi.fn(), renameDriveEntry: vi.fn(), copyDriveEntry: vi.fn(),
@@ -17,7 +16,7 @@ const { storage, notifyError, mdViewport, chooseConflictComparison, importFile, 
             restoreDriveTrashEntry: vi.fn(), deleteDriveTrashEntry: vi.fn(),
         },
         notifyError: vi.fn(),
-        mdViewport: writable(true),
+        mdViewport: { current: true },
         chooseConflictComparison: vi.fn(),
         importFile: vi.fn(),
         getCharacterImageFormat: vi.fn(),
@@ -25,7 +24,7 @@ const { storage, notifyError, mdViewport, chooseConflictComparison, importFile, 
     }
 })
 vi.mock('src/ts/storage/autoStorage', () => ({ forageStorage: { Init: async () => {}, realStorage: storage } }))
-vi.mock('src/ts/gui/breakpoints', () => ({ mdViewport }))
+vi.mock('src/ts/gui/breakpoints', () => ({ mdViewport, isTouchDevice: { current: false } }))
 vi.mock('src/ts/alert', () => ({ notifyError, notifySuccess: vi.fn() }))
 vi.mock('src/ts/storage/saveConflict', async importOriginal => {
     const original = await importOriginal<typeof import('src/ts/storage/saveConflict')>()
@@ -142,7 +141,7 @@ beforeEach(async () => {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:drive-preview')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     localStorage.clear()
-    mdViewport.set(true)
+    mdViewport.current = true
     DBState.db.serverDriveShortcuts = []
     DBState.db.trashRetentionDays = 3
     rootEntries = [{ ...folder }]
@@ -1155,7 +1154,7 @@ it('browses the drive trash and only empties it after confirmation', async () =>
 it('uses the mobile navigation toolbar and refreshes the current folder from the left rail', async () => {
     await unmount(component)
     document.body.replaceChildren()
-    mdViewport.set(false)
+    mdViewport.current = false
     await mountDrive()
 
     await openDocuments()

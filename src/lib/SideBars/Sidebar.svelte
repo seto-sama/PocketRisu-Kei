@@ -69,7 +69,7 @@
     } from "./sidebarDrag";
 
   import { sideBarSize } from "src/ts/gui/guisize";
-  import { mdViewport } from "src/ts/gui/breakpoints";
+  import { isTouchDevice, mdViewport } from "src/ts/gui/breakpoints";
   import DevTool from "./DevTool.svelte";
   import CharConfigHeader from "./CharConfigHeader.svelte";
     import QuickSettingsGui from "../Others/QuickSettingsGUI.svelte";
@@ -96,7 +96,6 @@
       pluginSidebarMenuKey,
     } from "src/ts/sidebarMenuOrder";
     import { serverDriveAvailable } from 'src/ts/serverDriveFilePicker.svelte';
-  const isTouchDevice = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches;
 
   let sideBarMode = $state(0);
   let editMode = $state(false);
@@ -114,7 +113,6 @@
 
   type sortTypeNormal = { type:'normal',img: string, chaId: string, name:string }
   type sortType =  sortTypeNormal|{type:'folder',settings:CharacterFolder,folder:sortTypeNormal[],id:string, name:string, color:string}
-  let charImages: sortType[] = $state([]);
   const selectedCharacterId = $derived(DBState.db.characters[$selectedCharID]?.chaId);
   // Recently interacted characters for the home sidebar. Character-level
   // `lastInteraction` is already in memory (no chat hydration needed), so this
@@ -201,7 +199,10 @@
 
   sideBarClosing.set(false)
 
-  $effect(() => {
+  // Keeps the previous array while the content is unchanged, so unrelated DB
+  // writes do not hand every sidebar item a fresh object.
+  let previousCharImages: sortType[] = []
+  const charImages: sortType[] = $derived.by(() => {
     let newCharImages: sortType[] = [];
     const idObject = getCharacterIndexObject()
     const hiddenIds = new Set(DBState.db.hiddenCharacterIds ?? [])
@@ -245,9 +246,10 @@
         });
       }
     }
-    if (!isEqual(charImages, newCharImages)) {
-      charImages = newCharImages;
+    if (!isEqual(previousCharImages, newCharImages)) {
+      previousCharImages = newCharImages;
     }
+    return previousCharImages
   })
 
   $effect(() => {
@@ -375,7 +377,6 @@
     
     if (targetFolderId && !openFolders.includes(targetFolderId)) {
       openFolders.push(targetFolderId)
-      openFolders = openFolders
     }
     
     setTimeout(() => {
@@ -416,7 +417,7 @@
   class:overflow-hidden={!editMode}
   class:overflow-visible={editMode}
   class:sidebar-menu-edit-active={editMode}
-  class:dynamic-sidebar-slot={$DynamicGUI}
+  class:dynamic-sidebar-slot={DynamicGUI.current}
   class:risu-sidebar-slot={!$sideBarClosing}
   class:risu-sidebar-slot-close={$sideBarClosing}
   class:hidden={hidden}
@@ -430,7 +431,7 @@
 >
 <div
   class="sidebar-motion-panel h-full flex shrink-0"
-  class:dynamic-sidebar-panel={$DynamicGUI}
+  class:dynamic-sidebar-panel={DynamicGUI.current}
   class:sidebar-menu-editing={editMode}
 >
 <div
@@ -550,7 +551,7 @@
                       <SettingsIcon />
                     </BarIcon>
                   {:else}
-                    {@const menu = pluginMenuForKey(menuKey)}
+                    {const menu = $derived(pluginMenuForKey(menuKey))}
                     {#if menu}
                       <BarIcon
                         onClick={() => {
@@ -641,7 +642,7 @@
             <FolderAvatar folder={char.settings} expanded={openFolders.includes(char.id)} size={String(SIDEBAR_ROOT_ITEM_SIZE)}
               selected={sideBarMode !== 1 && char.folder.some(folderChar => folderChar.chaId === selectedCharacterId)}
               mergeTarget={folderDropTargetId === char.id}
-              oncontextmenu={isTouchDevice ? undefined : (e) => {
+              oncontextmenu={isTouchDevice.current ? undefined : (e) => {
                 e.preventDefault()
                 void openSidebarFolderMenu(char.id)
               }}
@@ -656,7 +657,6 @@
                 else{
                   openFolders.push(char.id)
                 }
-                openFolders = openFolders
               }} />
 
             {/key}
@@ -739,12 +739,12 @@
   class:w-110={$sideBarSize === 1}
   class:w-124={$sideBarSize === 2}
   class:w-138={$sideBarSize === 3}
-  class:min-w-96={!$DynamicGUI && $sideBarSize === 0}
-  class:min-w-110={!$DynamicGUI && $sideBarSize === 1}
-  class:min-w-124={!$DynamicGUI && $sideBarSize === 2}
-  class:min-w-138={!$DynamicGUI && $sideBarSize === 3}
-  class:px-2={$DynamicGUI}
-  class:px-4={!$DynamicGUI}
+  class:min-w-96={!DynamicGUI.current && $sideBarSize === 0}
+  class:min-w-110={!DynamicGUI.current && $sideBarSize === 1}
+  class:min-w-124={!DynamicGUI.current && $sideBarSize === 2}
+  class:min-w-138={!DynamicGUI.current && $sideBarSize === 3}
+  class:px-2={DynamicGUI.current}
+  class:px-4={!DynamicGUI.current}
   class:hidden={hidden}
   class:flex={!hidden}
 >
@@ -792,7 +792,7 @@
         {:else}
         <HorizontalMasonry itemCount={displayedRecentChars.length} className="mt-2">
           {#snippet children(index)}
-            {@const rc = displayedRecentChars[index]}
+            {const rc = $derived(displayedRecentChars[index])}
             <CharacterMasonryIcon
               src={rc.image ? getFileSrc(rc.image) : ""}
               hideImage={DBState.db.hideAllImages && !!rc.image}
@@ -806,7 +806,7 @@
           <div
             class="h-px w-full"
             aria-hidden="true"
-            use:observeRecentChatsSentinel={filteredRecentChars.length}
+            {@attach observeRecentChatsSentinel(filteredRecentChars.length)}
           ></div>
         {/if}
         {/if}
@@ -868,7 +868,7 @@
           <CharConfig />
         {/if}
       {:else}
-        <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} mobile={!$mdViewport} />
+        <SideChatList bind:chara={ DBState.db.characters[$selectedCharID]} mobile={!mdViewport.current} />
       {/if}
     {/if}
   {/if}
@@ -890,7 +890,7 @@
 
 <SupportDialog bind:open={supportOpen} />
 
-{#if $DynamicGUI}
+{#if DynamicGUI.current}
     <div role="button" tabindex="0" class="risu-modal-backdrop sidebar-dismiss-area"
       class:hidden={hidden} onclick={() => {
       if($sideBarClosing){

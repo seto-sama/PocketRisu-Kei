@@ -4,28 +4,41 @@ import { getChatPage, setChatPage } from '../../ts/storage/chatSelection.svelte'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const storeMocks = await vi.hoisted(async () => {
-    const { writable } = await import('svelte/store')
-    const ReloadChatPointer = writable<Record<number, number>>({})
+// `.svelte.test.ts` compiles in runes mode, which wraps top-level `await`, so the
+// hoisted block stays synchronous and the store-backed mocks are built in the factory.
+const storeMocks = vi.hoisted(() => ({
+    DBState: { db: {} as any },
+    mdViewport: { current: true },
+}) as { DBState: { db: any }, mdViewport: { current: boolean } } & Awaited<ReturnType<typeof createStoreMocks>>)
+
+async function createStoreMocks() {
+    const { fromStore, writable } = await import('svelte/store')
+    const messageRevisions = writable<Record<number, number>>({})
+    const displayRevision = writable(0)
+    const messages = fromStore(messageRevisions)
+    const display = fromStore(displayRevision)
     return {
-        DBState: { db: {} as any },
         createSimpleCharacter: (character: unknown) => character,
-        ReloadChatPointer,
+        messageRevisions,
+        displayRevision,
+        renderRevision: {
+            get display() { return display.current },
+            get chatRoom() { return 0 },
+            get messages() { return messages.current },
+        },
         invalidateChatMessageRender: (messageIndex: number) => {
-            ReloadChatPointer.update(value => ({
+            messageRevisions.update(value => ({
                 ...value,
                 [messageIndex]: (value[messageIndex] ?? 0) + 1,
             }))
         },
-        ReloadGUIPointer: writable(0),
         selectedCharID: writable(0),
         HideIconStore: writable(false),
-        mdViewport: writable(true),
         CurrentTriggerIdStore: writable<string | null>(null),
         selIdState: { selId: 0 },
         popupStore: { openId: 0, children: null, mouseX: 0, mouseY: 0 },
     }
-})
+}
 
 const parserMocks = vi.hoisted(() => ({
     ParseMarkdown: vi.fn(async (value: string) => value),
@@ -61,8 +74,8 @@ const translatorMocks = vi.hoisted(() => ({
     ) => value),
 }))
 
-vi.mock('src/ts/stores.svelte', () => storeMocks)
-vi.mock('src/ts/gui/breakpoints', () => ({ mdViewport: storeMocks.mdViewport }))
+vi.mock('src/ts/stores.svelte', async () => Object.assign(storeMocks, await createStoreMocks()))
+vi.mock('src/ts/gui/breakpoints', () => ({ mdViewport: storeMocks.mdViewport, isTouchDevice: { current: false } }))
 vi.mock('src/ts/globalApi.svelte', () => ({
     requestImmediateSave: vi.fn(async () => {}),
     aiLawApplies: () => false,
@@ -72,7 +85,7 @@ vi.mock('src/ts/globalApi.svelte', () => ({
     foldChatToMessage: vi.fn(),
     getFileSrc: async (value: string) => value,
 }))
-vi.mock('src/ts/gui/colorscheme', () => ({ ColorSchemeTypeStore: storeMocks.HideIconStore }))
+vi.mock('src/ts/gui/colorscheme', async () => ({ ColorSchemeTypeStore: (await import('svelte/store')).writable('dark') }))
 vi.mock('src/ts/process/scriptings', () => ({ runLuaInteractionTrigger: interactionMocks.runLuaInteractionTrigger }))
 vi.mock('src/ts/process/scripts', () => ({
     risuChatParser: (value: string) => value,
@@ -140,7 +153,7 @@ vi.mock('src/ts/imageGeneration/addInlayToCharacter', () => ({
     GeneratedInlayAssetError: class GeneratedInlayAssetError extends Error {},
 }))
 vi.mock('src/ts/characters', () => ({ getCharImage: (value: string) => value }))
-vi.mock('src/ts/gui/longtouch', () => ({ longpress: () => ({ destroy() {} }) }))
+vi.mock('src/ts/gui/longtouch', () => ({ longpress: () => () => {} }))
 // The real display decision runs; only server-side job recovery is stubbed out.
 vi.mock('src/ts/process/revenant/auxiliary', async importOriginal => ({
     ...await importOriginal<typeof import('src/ts/process/revenant/auxiliary')>(),
@@ -159,8 +172,7 @@ vi.mock('src/ts/process/revenant/recovery/translationRecovery', () => ({
     recoverRevenantTranslationJobs: async () => {},
 }))
 
-import { mount, tick, unmount, type ComponentProps } from 'svelte'
-import { createClassComponent } from 'svelte/legacy'
+import { flushSync, mount, tick, unmount, type ComponentProps } from 'svelte'
 import Chat from './Chat.svelte'
 import Chats from './Chats.svelte'
 import { clearChatBodyRenderCache } from './chatBodyRenderCache'
@@ -171,8 +183,8 @@ const componentCleanups: (() => void | Promise<void>)[] = []
 
 beforeEach(() => {
     clearChatBodyRenderCache()
-    storeMocks.ReloadChatPointer.set({})
-    storeMocks.ReloadGUIPointer.set(0)
+    storeMocks.messageRevisions.set({})
+    storeMocks.displayRevision.set(0)
     parserMocks.imagePreloadingEnabled = false
     parserMocks.ParseMarkdown.mockImplementation(async (value: string) => value)
     parserMocks.preloadInlayAssets.mockResolvedValue()
@@ -241,26 +253,43 @@ function mountChat(props: Partial<ComponentProps<typeof Chat>> = {}) {
     return { target, component }
 }
 
-function mountChats(messages: Message[], props: Partial<ComponentProps<typeof Chats>> = {}) {
+type ChatsProps = ComponentProps<typeof Chats>
+type LiveChatsProps = Pick<ChatsProps, 'messages' | 'loadPages' | 'roomIsStreaming' | 'roomIsResponding'>
+
+function mountChats(messages: Message[], props: Partial<ChatsProps> = {}) {
     const target = document.createElement('div')
     document.body.appendChild(target)
-    const component = createClassComponent({
-        component: Chats,
+    // Raw per-prop state: tests mutate message objects in place, so the list must
+    // see the same objects (not deep proxies), and an update touches only that prop.
+    let liveMessages = $state.raw(messages)
+    let loadPages = $state.raw(props.loadPages ?? 30)
+    let roomIsStreaming = $state.raw(props.roomIsStreaming)
+    let roomIsResponding = $state.raw(props.roomIsResponding)
+    const component = mount(Chats, {
         target,
         props: {
-            messages,
             currentCharacter: DBState.db.characters[0] as character,
             chatRoomId: 'chat-1',
             onReroll: () => {},
             unReroll: () => {},
             currentUsername: 'User',
             userIcon: 'user.png',
-            loadPages: 30,
             ...props,
+            get messages() { return liveMessages },
+            get loadPages() { return loadPages },
+            get roomIsStreaming() { return roomIsStreaming },
+            get roomIsResponding() { return roomIsResponding },
         },
     })
-    componentCleanups.push(() => component.$destroy())
-    return { target, component }
+    flushSync()
+    componentCleanups.push(() => unmount(component))
+    const update = (next: Partial<LiveChatsProps>) => {
+        if (next.messages) liveMessages = next.messages
+        if (next.loadPages !== undefined) loadPages = next.loadPages
+        if ('roomIsStreaming' in next) roomIsStreaming = next.roomIsStreaming
+        if ('roomIsResponding' in next) roomIsResponding = next.roomIsResponding
+    }
+    return { target, update }
 }
 
 async function waitForText(target: Element, text: string, hidden?: string) {
@@ -556,14 +585,14 @@ describe('Chat editing', () => {
         }
         setMessages([streamingMessage])
 
-        const { target, component } = mountChats([streamingMessage], {
+        const { target, update } = mountChats([streamingMessage], {
             roomIsStreaming: true,
             roomIsResponding: true,
         })
         await vi.waitFor(() => expect(target.textContent).toContain('Streaming assistant output'))
         expect(translatorMocks.translateHTML).not.toHaveBeenCalled()
 
-        component.$set({
+        update({
             messages: [streamingMessage],
             roomIsStreaming: false,
             roomIsResponding: false,
@@ -988,7 +1017,7 @@ describe('Chat editing', () => {
                 message.data = message.swipes![0]
                 delete message.swipes
                 delete message.swipeId
-                storeMocks.ReloadChatPointer.set({ 0: 1 })
+                storeMocks.messageRevisions.set({ 0: 1 })
             },
             loadPages: 1,
         })
@@ -1030,7 +1059,7 @@ describe('Chat editing', () => {
         messages[0].swipes!.splice(2, 1)
         messages[0].swipeId = 1
         messages[0].data = 'Second swipe'
-        storeMocks.ReloadChatPointer.set({ 0: 1 })
+        storeMocks.messageRevisions.set({ 0: 1 })
 
         await vi.waitFor(() => {
             expect(target.textContent).toContain('Translated second swipe')
@@ -1066,7 +1095,7 @@ describe('Chat editing', () => {
 
         messages[0].swipeId = 2
         messages[0].data = 'Third swipe'
-        storeMocks.ReloadChatPointer.set({ 0: 2 })
+        storeMocks.messageRevisions.set({ 0: 2 })
 
         await vi.waitFor(() => {
             expect(target.textContent).toContain('Third swipe')
@@ -1138,7 +1167,7 @@ describe('Chat editing', () => {
         )
         interactionMocks.runLuaInteractionTrigger.mockImplementation(async () => {
             // Reactive updates can arrive before the trigger finishes.
-            storeMocks.ReloadGUIPointer.set(1)
+            storeMocks.displayRevision.set(1)
             await Promise.resolve()
             chat.scriptstate = { $view: 'updated' }
             return { chat, chatSaved }
@@ -1183,7 +1212,7 @@ describe('Chat editing', () => {
         interactionMocks.runLuaInteractionTrigger.mockImplementationOnce(() => new Promise(resolve => {
             complete = resolve
             // An intermediate render while the trigger is still running.
-            storeMocks.ReloadGUIPointer.set(1)
+            storeMocks.displayRevision.set(1)
         }))
 
         const { target } = mountChat({ message: buttonMessage, renderCacheKey: 'room:lua-regen' })
@@ -1227,15 +1256,16 @@ describe('Chat editing', () => {
         })
         const target = document.createElement('div')
         document.body.appendChild(target)
-        const component = createClassComponent({
-            component: Chat,
+        let liveMessage = $state.raw(before)
+        const component = mount(Chat, {
             target,
-            props: { message: before, name: 'User', role: 'user', idx: 0, totalLength: 2 },
+            props: { get message() { return liveMessage }, name: 'User', role: 'user', idx: 0, totalLength: 2 },
         })
-        componentCleanups.push(() => component.$destroy())
+        flushSync()
+        componentCleanups.push(() => unmount(component))
         interactionMocks.runLuaInteractionTrigger.mockImplementationOnce(async () => {
             chat.message[0].data = after
-            component.$set({ message: after })
+            liveMessage = after
             await tick()
             return { chat, chatSaved: true }
         })
@@ -1285,7 +1315,7 @@ describe('Chat editing', () => {
             chatId: `message-${index}`,
         }))
         setMessages(messages)
-        const { target, component } = mountChats(messages)
+        const { target, update } = mountChats(messages)
         await waitForText(target, 'Message 59')
         expect(target.querySelector('[data-chat-index]')?.getAttribute('data-chat-index')).toBe('30')
         expect(target.querySelector('[data-chat-index="0"]')).toBeNull()
@@ -1298,7 +1328,7 @@ describe('Chat editing', () => {
         await tick()
         parserMocks.ParseMarkdown.mockClear()
 
-        component.$set({ loadPages: 60 })
+        update({ loadPages: 60 })
         await waitForText(target, 'Message 0')
         const rendered = target.querySelectorAll<HTMLElement>('[data-chat-index]')
         expect(rendered[0].dataset.chatIndex).toBe('0')
@@ -1325,7 +1355,7 @@ describe('Chat editing', () => {
             chatId: 'stream-1',
         }
         setMessages([initialMessage])
-        const { target, component } = mountChats([initialMessage], {
+        const { target, update } = mountChats([initialMessage], {
             roomIsStreaming: true,
             roomIsResponding: true,
         })
@@ -1336,13 +1366,13 @@ describe('Chat editing', () => {
         expect(image).not.toBeNull()
 
         const growingMessage = { ...initialMessage, data: `${completedBlocks}Finished tail` }
-        component.$set({ messages: [growingMessage] })
+        update({ messages: [growingMessage] })
         await waitForText(target, 'Finished tail')
         expect(target.querySelector('p')).toBe(paragraph)
         expect(target.querySelector('img[alt="Streaming asset"]')).toBe(image)
         expect(target.textContent).not.toContain('Final parsed output:')
 
-        component.$set({ roomIsStreaming: false, roomIsResponding: false })
+        update({ roomIsStreaming: false, roomIsResponding: false })
         await waitForText(target, 'Final parsed output:')
         expect(target.textContent).toContain('Stable paragraph.')
         expect(target.textContent).toContain('Finished tail')

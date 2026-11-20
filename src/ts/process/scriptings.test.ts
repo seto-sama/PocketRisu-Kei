@@ -18,7 +18,7 @@ const state = vi.hoisted(() => ({
 vi.mock('../storage/database.svelte', () => ({ getDatabase: () => state.db, getCurrentChat: () => state.db.characters[0].chats[0], normalizeChat: (chat: unknown) => chat }))
 vi.mock('../stores.svelte', () => ({
     DBState: { get db() { return state.db } },
-    selectedCharID: writable(0), ReloadGUIPointer: writable(0),
+    selectedCharID: writable(0), invalidateDisplay: vi.fn(), invalidateChatMessageRender: vi.fn(),
     CurrentTriggerIdStore: writable(null),
 }))
 vi.mock('../alert', () => ({ alertInput: state.alertInput }))

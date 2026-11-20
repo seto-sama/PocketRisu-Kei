@@ -1,6 +1,6 @@
 <script lang="ts">
     import type { SettingItem, SettingContext } from 'src/ts/setting/types';
-    import { UNINITIALIZED, getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
+    import { getLabel, getSettingValue, setSettingValue } from 'src/ts/setting/utils';
     import { untrack } from 'svelte';
     import { language } from 'src/lang';
     import Slider from '../../UI/components/Slider.svelte';
@@ -15,24 +15,17 @@
 
     let { item, ctx }: Props = $props();
 
-    let localValue: any = $state(untrack(() => getSettingValue(item, ctx)));
+    let localValue: any = $derived(getSettingValue(item, ctx));
     let disabled = $derived(typeof item.options?.disabled === 'function' ? item.options.disabled(ctx) : !!item.options?.disabled);
 
-    // Sync: DB → local (one-way read)
-    $effect(() => {
-        localValue = getSettingValue(item, ctx);
-    });
-
-    // Write-back: local → DB (guarded)
-    $effect(() => {
-        const val = localValue;
-        if (val === UNINITIALIZED) return;
+    function commitValue(val: any) {
+        localValue = val;
         untrack(() => {
             if (val !== getSettingValue(item, ctx)) {
                 setSettingValue(item, val, ctx);
             }
         });
-    });
+    }
 
     // Read-only display formatter for the Slider row layout: only for sliders
     // whose value maps to a word/unit label (customText). Numeric sliders —
@@ -78,12 +71,12 @@
     }
 
     function writeSliderValue(v: number) {
-        localValue = roundReal(v / sliderMult);
+        commitValue(roundReal(v / sliderMult));
     }
 
     function writeRowSliderValue(v: number) {
         if (item.options?.disableable && v < sliderMin) {
-            localValue = -1000;
+            commitValue(-1000);
             return;
         }
         writeSliderValue(v);
@@ -94,7 +87,7 @@
         const enabledValue = typeof defaultValue === 'number' && Number.isFinite(defaultValue)
             ? defaultValue
             : (item.options?.min ?? 0);
-        localValue = on ? enabledValue : -1000;
+        commitValue(on ? enabledValue : -1000);
     }
 </script>
 

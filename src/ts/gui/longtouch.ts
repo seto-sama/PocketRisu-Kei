@@ -1,4 +1,6 @@
-export function longpress(node:HTMLElement, callback:(e:MouseEvent)=>void) {
+import type { Attachment } from 'svelte/attachments';
+
+export const longpress = (callback:(e:MouseEvent)=>void): Attachment<HTMLElement> => (node) => {
 	const TIME_MS = 500;
 	let timeoutPtr: number;
 	function handleMouseDown(e:MouseEvent) {
@@ -18,10 +20,8 @@ export function longpress(node:HTMLElement, callback:(e:MouseEvent)=>void) {
 	}
 	node.addEventListener('mousedown', handleMouseDown);
 	node.addEventListener('mouseup', handleMouseUp);
-	return {
-		destroy: () => {
-			node.removeEventListener('mousedown', handleMouseDown);
-			node.removeEventListener('mouseup', handleMouseUp);
-		}
+	return () => {
+		node.removeEventListener('mousedown', handleMouseDown);
+		node.removeEventListener('mouseup', handleMouseUp);
 	};
-}
+};

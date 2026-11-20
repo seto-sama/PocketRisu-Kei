@@ -170,7 +170,7 @@
     {/if}
 
     {#each fields as field}
-        {@const options = getOptions(field)}
+        {const options = $derived(getOptions(field))}
         {#if isLorebookAlwaysActiveField(field)}
             <div data-disclosure-row>
                 <span>{getLabel(field)}</span>

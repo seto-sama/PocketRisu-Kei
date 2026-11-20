@@ -14,14 +14,8 @@
 
     let { item, ctx }: Props = $props();
 
-    let localValue: any = $state(untrack(() => getSettingValue(item, ctx)));
-    let draftValue = $state(untrack(() => getSettingValue(item, ctx) ?? ''));
-
-    // Sync: DB → local (one-way read)
-    $effect(() => {
-        localValue = getSettingValue(item, ctx);
-        draftValue = localValue ?? '';
-    });
+    let localValue: any = $derived(getSettingValue(item, ctx));
+    let draftValue = $derived(localValue ?? '');
 
     function commitValue(val: string) {
         untrack(() => {

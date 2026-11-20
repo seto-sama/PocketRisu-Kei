@@ -7,7 +7,7 @@
     import { exportChat, importChat } from "src/ts/characters";
     import { changeChatTo, createPersistedChat, requestImmediateSave } from "src/ts/globalApi.svelte";
     import { newChatModelDefaults, type ChatFolder } from "src/ts/storage/database.svelte";
-    import { DBState, ReloadGUIPointer, selectedCharID } from "src/ts/stores.svelte";
+    import { DBState, selectedCharID } from "src/ts/stores.svelte";
     import InlineEditableName from "../UI/components/InlineEditableName.svelte";
     import PresetPickerActions from "../UI/PresetPickerActions.svelte";
     import PresetPickerLayout from "../UI/PresetPickerLayout.svelte";
@@ -34,7 +34,6 @@
     const itemNames = $derived((character?.chats ?? []).map(chat => chat.name));
 
     function persistListChange() {
-        $ReloadGUIPointer += 1;
         void requestImmediateSave();
     }
 
@@ -149,7 +148,7 @@
         itemRenameable
     >
         {#snippet itemContent(index, renameController)}
-            {@const chat = character.chats[index]}
+            {const chat = $derived(character.chats[index])}
             {#if chat}
                 <InlineEditableName
                     controller={renameController}

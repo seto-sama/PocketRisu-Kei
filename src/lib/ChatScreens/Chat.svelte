@@ -54,12 +54,12 @@
     import { runTrigger } from 'src/ts/process/triggers'
     import { commitTriggerChat } from 'src/ts/process/triggerOrigin'
     import { sayTTS } from "src/ts/process/tts"
-    import { DBState, ReloadChatPointer, CurrentTriggerIdStore, invalidateChatMessageRender } from 'src/ts/stores.svelte'
+    import { DBState, CurrentTriggerIdStore, invalidateChatMessageRender, renderRevision } from 'src/ts/stores.svelte'
     import { mdViewport } from 'src/ts/gui/breakpoints'
 
     import { getUserIcon, getUserName, sleep } from "src/ts/util"
-    import { onDestroy, onMount, tick } from "svelte"
-    import { type Unsubscriber } from "svelte/store"
+    import { onMount, tick } from "svelte"
+    import type { Attachment } from "svelte/attachments"
     import { createEntityId } from 'src/ts/id';
     import { language } from "../../lang"
     import { alertClear, alertConfirm, alertConfirmMulti, alertError, alertInput, alertRequestData, alertWait, notifyInfo, notifySuccess, type AlertAction } from "../../ts/alert"
@@ -68,7 +68,7 @@
     import { getTranslationSourceKey, stripTranslationPlaceholders } from "../../ts/translator/translationMask"
     import { getCurrentCharacter, getCurrentChat, getStickyChatToolbarVariant, type Chat, type MessageGenerationInfo } from "../../ts/storage/database.svelte"
     import { selectedCharID } from "../../ts/stores.svelte"
-    import { HideIconStore, ReloadGUIPointer, selIdState } from "../../ts/stores.svelte"
+    import { HideIconStore, selIdState } from "../../ts/stores.svelte"
     import Textarea from "../UI/components/Textarea.svelte"
     import ChatBody from './ChatBody.svelte'
     import { getParsedGuiHtml } from './guiHtmlRenderCache'
@@ -684,7 +684,7 @@
         'max-w-3xl'
     )
 
-    function trackFloatingToolbar(node: HTMLElement) {
+    const trackFloatingToolbar: Attachment<HTMLElement> = (node) => {
         const anchor = node.previousElementSibling as HTMLElement | null
         const scrollRoot = node.closest('.default-chat-screen') as HTMLElement | null
         if (!anchor || !scrollRoot || typeof IntersectionObserver === 'undefined') {
@@ -696,34 +696,23 @@
             floatingToolbarStuck = stuck
         })
 
-        return {
-            destroy() {
-                stopObserving()
-                floatingToolbarStuck = false
-            }
+        return () => {
+            stopObserving()
+            floatingToolbarStuck = false
         }
     }
 
     $effect.pre(() => {
+        // Script-driven display reloads can change the result without changing `message`.
+        void renderRevision.display
         displaya(message)
     });
 
-    const unsubscribers:Unsubscriber[] = []
-
-    onMount(()=>{
-        unsubscribers.push(ReloadGUIPointer.subscribe((v) => {
-            displaya(message)
-        }))
-        unsubscribers.push(subscribeTranslationResume((taskKeys) => {
-            void reconcileCompletedTranslation(taskKeys).catch(error => {
-                console.error('[Translation] Failed to reconcile resumed message:', error)
-            })
-        }))
-    })
-
-    onDestroy(()=>{
-        unsubscribers.forEach(u => u())
-    })
+    onMount(() => subscribeTranslationResume((taskKeys) => {
+        void reconcileCompletedTranslation(taskKeys).catch(error => {
+            console.error('[Translation] Failed to reconcile resumed message:', error)
+        })
+    }))
 
     $effect(() => {
         const root = partialEditRoot
@@ -945,13 +934,13 @@
         style="min-height:var(--icon-cell-size)"
     >
         {#if messageGenerationInfo && DBState.db.requestInfoInsideChat}
-            {@const diagnosticMessage = idx >= 0
+            {const diagnosticMessage = $derived(idx >= 0
                 ? DBState.db.characters[$selectedCharID].chats[getChatPage(DBState.db.characters[$selectedCharID])].message[idx]
-                : undefined}
-            {@const diagnosticGenerationInfo = diagnosticMessage
+                : undefined)}
+            {const diagnosticGenerationInfo = $derived(diagnosticMessage
                 ? resolveRequestDiagnosticContext(diagnosticMessage, messageGenerationInfo).generationInfo
-                : messageGenerationInfo}
-            {@const modelLabel = diagnosticGenerationInfo?.model || language.requestDiagnostics.unavailable}
+                : messageGenerationInfo)}
+            {const modelLabel = $derived(diagnosticGenerationInfo?.model || language.requestDiagnostics.unavailable)}
             <IconButton
                 expanded
                 className={`text-sm ${generationInfoAlignsLeft ? '' : 'order-last'}`}
@@ -1006,7 +995,7 @@
     <div
         class="chat-toolbar-sticky-layer chat-toolbar-floating-layer"
         class:chat-toolbar-is-stuck={floatingToolbarStuck}
-        use:trackFloatingToolbar
+        {@attach trackFloatingToolbar}
     >
         <div class="chat-toolbar-floating-card" style:--chat-toolbar-floating-bg={floatingToolbarBackground}>
             <div class="chat-message-actions chat-toolbar-actions">
@@ -1060,8 +1049,8 @@
         }}>
 
             {#if msgDisplay.startsWith('{{specialcomment')}
-                {@const parts = msgDisplay.split('::')}
-                {@const type = parts[1]}
+                {const parts = $derived(msgDisplay.split('::'))}
+                {const type = $derived(parts[1])}
 
                 {#if type === 'branchedfrom'}
                     <button class="min-w-0 text-center text-primary hover:underline"
@@ -1083,8 +1072,8 @@
         </div>
     {:else}
         <!-- Preserve ChatBody during streaming to keep the reader's scroll anchor. -->
-        {@const chatReloadPointer = `${$ReloadGUIPointer}|${isStreamingDisplay ? 0 : ($ReloadChatPointer[idx] ?? 0)}`}
-        {@const totalLengthPointer = (idx > totalLength - 6) ? totalLength : 0}
+        {const chatReloadPointer = $derived(`${renderRevision.display}|${isStreamingDisplay ? 0 : (renderRevision.messages[idx] ?? 0)}`)}
+        {const totalLengthPointer = $derived((idx > totalLength - 6) ? totalLength : 0)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span class="text chat-width chattext prose minw-0"
@@ -1155,7 +1144,7 @@
         {:else}
             <span class="text-xs">{statusMessage}</span>
             <IconButtonGroup size="lg" className="ml-2 flex-wrap justify-end">
-                {#if $mdViewport}
+                {#if mdViewport.current}
                     {@render ttsButton(false)}
                     {@render translationButton()}
                     {@render copyButton(false)}

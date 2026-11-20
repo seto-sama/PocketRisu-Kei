@@ -167,7 +167,7 @@
         itemRenameable
     >
         {#snippet itemContent(index, renameController)}
-            {@const preset = DBState.db.botPresets[index]}
+            {const preset = $derived(DBState.db.botPresets[index])}
             {#if preset.image}
                 <img src={preset.image} alt="icon" class="mr-2 min-w-6 min-h-6 w-6 h-6 rounded-md" decoding="async"/>
             {/if}

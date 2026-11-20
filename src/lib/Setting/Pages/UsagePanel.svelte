@@ -512,11 +512,11 @@
                         {/each}
                         <div class="absolute inset-0 flex items-end">
                             {#each chartBuckets as bucket (bucket.key)}
-                                {@const effectiveCachedTokens = Math.min(bucket.cachedTokens, bucket.promptTokens)}
-                                {@const uncachedPromptTokens = Math.max(0, bucket.promptTokens - effectiveCachedTokens)}
-                                {@const effectiveReasoningTokens = Math.min(bucket.reasoningTokens, bucket.completionTokens)}
-                                {@const visibleCompletionTokens = Math.max(0, bucket.completionTokens - effectiveReasoningTokens)}
-                                {@const bucketTotal = bucket.promptTokens + bucket.completionTokens}
+                                {const effectiveCachedTokens = $derived(Math.min(bucket.cachedTokens, bucket.promptTokens))}
+                                {const uncachedPromptTokens = $derived(Math.max(0, bucket.promptTokens - effectiveCachedTokens))}
+                                {const effectiveReasoningTokens = $derived(Math.min(bucket.reasoningTokens, bucket.completionTokens))}
+                                {const visibleCompletionTokens = $derived(Math.max(0, bucket.completionTokens - effectiveReasoningTokens))}
+                                {const bucketTotal = $derived(bucket.promptTokens + bucket.completionTokens)}
                                 <div class="h-full flex-1 min-w-0 flex items-end justify-center">
                                     <Tooltip delayDuration={200} className="tabular-nums">
                                         {#snippet trigger(props)}

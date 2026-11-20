@@ -1,11 +1,11 @@
 <script lang="ts">
     import { Toaster as SonnerToaster, type ToasterProps } from 'svelte-sonner';
-    import { isTouchDevice } from 'src/ts/stores.svelte';
+    import { isTouchDevice } from 'src/ts/gui/breakpoints';
     import { ColorSchemeTypeStore } from 'src/ts/gui/colorscheme';
 
     let { ...rest }: ToasterProps = $props();
 
-    const position = $derived<ToasterProps['position']>($isTouchDevice ? 'top-center' : 'top-right');
+    const position = $derived<ToasterProps['position']>(isTouchDevice.current ? 'top-center' : 'top-right');
 </script>
 
 <SonnerToaster

@@ -752,7 +752,7 @@
     </IconButtonGroup>
 {/snippet}
 
-<Dialog bind:open size="xl" fullscreen={!$mdViewport} closable={false} ariaLabel={pick ? language.serverDrive.pickTitle : language.serverDrive.title}
+<Dialog bind:open size="xl" fullscreen={!mdViewport.current} closable={false} ariaLabel={pick ? language.serverDrive.pickTitle : language.serverDrive.title}
     contentClass="md:h-[90dvh] overflow-hidden p-0 gap-0"
     bodyClass="flex min-h-0 grow overflow-hidden">
     <section class="grid min-h-0 min-w-0 flex-1 grid-cols-[var(--icon-cell-size)_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto]" style:--icon-cell-size="{controlCellSize}px">
@@ -793,7 +793,7 @@
         </div>
 
         <div class="col-start-2 row-start-1 flex h-[var(--icon-cell-size)] min-w-0 items-center">
-            {#if $mdViewport}{@render navigationButtons()}{/if}
+            {#if mdViewport.current}{@render navigationButtons()}{/if}
             <nav class="mx-2 flex min-w-0 flex-1 items-center rounded-md bg-lightbg px-1 py-0.5" aria-label={language.serverDrive.path}>
                 <div class="flex min-w-0 flex-1 items-center overflow-x-auto">
                     <IconButton {...actionProps()} {...(inTrash ? {} : dropProps(addressRoot))} data-selected={dropPath === addressRoot} size="default" tooltipSide="bottom" className="risu-selectable-row text-maintext hover:text-maintext"
@@ -802,13 +802,13 @@
                     </IconButton>
                     {@render folderDropdown(addressRoot)}
                     {#each parts.slice(addressRootDepth) as part, index}
-                        {@const path = parts.slice(0, addressRootDepth + index + 1).join('/')}
+                        {const path = $derived(parts.slice(0, addressRootDepth + index + 1).join('/'))}
                         <button {...dropProps(path)} data-selected={dropPath === path} class="risu-selectable-row h-6 shrink-0 rounded-md px-1.5 text-xs" disabled={disabled} onclick={() => refresh(path)}>{part}</button>
                         {@render folderDropdown(path)}
                     {/each}
                 </div>
             </nav>
-            {#if $mdViewport}{@render windowButtons()}{/if}
+            {#if mdViewport.current}{@render windowButtons()}{/if}
         </div>
 
         <div class="col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-tl-xl bg-lightbg">
@@ -822,7 +822,7 @@
             <ContextMenu.Root onOpenChange={(open) => { if (open) { selectedPaths = []; selectionAnchor = null } }}>
                 <ContextMenu.Trigger disabled={disabled || !!loadError}>
                     {#snippet child({ props })}
-                        {@const areaProps = props as HTMLAttributes<HTMLElement>}
+                        {const areaProps = $derived(props as HTMLAttributes<HTMLElement>)}
                         <main {...areaProps} {...dropProps(currentPath)} bind:this={fileArea} class="relative min-h-0 flex-1 select-none overflow-y-auto p-3" aria-label={language.serverDrive.title} aria-busy={loading} data-drive-files tabindex="-1"
                             onpointerdown={(event) => {
                                 if ((event.target as Element).closest('[data-drive-entry]')) return
@@ -921,7 +921,7 @@
                 </div>
             {/if}
         </div>
-        {#if !$mdViewport}
+        {#if !mdViewport.current}
             <div class="col-start-2 row-start-3 flex h-[var(--icon-cell-size)] min-w-0 items-center" role="toolbar" aria-label={language.serverDrive.navigation}>
                 {@render navigationButtons()}
                 <div class="flex-1"></div>
@@ -947,7 +947,7 @@
 </Dialog>
 
 {#if preview}
-    {@const { entry, file, importable } = preview}
+    {const { entry, file, importable } = $derived(preview)}
     {#key preview}
         <ServerDrivePreview {entry} {file} thumbnailUrl={thumbnailUrl(entry)} busy={disabled}
             onImport={importable ? () => { void importEntry(entry, file) } : undefined}

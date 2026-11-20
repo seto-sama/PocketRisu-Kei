@@ -1,7 +1,7 @@
 <script lang="ts">
     import { CheckIcon, ChevronDownIcon } from '@lucide/svelte';
     import { Select } from 'bits-ui';
-    import { isTouchDevice } from 'src/ts/stores.svelte';
+    import { isTouchDevice } from 'src/ts/gui/breakpoints';
     import { provideOverlayLayer } from 'src/ts/gui/overlayLayer.svelte';
     import OverlayLayerRoot from './overlay/OverlayLayerRoot.svelte';
 
@@ -70,7 +70,7 @@
     });
 </script>
 
-{#if $isTouchDevice}
+{#if isTouchDevice.current}
     <div class="relative rounded-md border border-darkborderc {className}">
         <div class="flex items-center justify-between rounded-md bg-transparent text-maintext pointer-events-none select-none {sizeClasses[size]}">
             <span class="flex flex-1 truncate text-left">{selectedLabel || ' '}</span>

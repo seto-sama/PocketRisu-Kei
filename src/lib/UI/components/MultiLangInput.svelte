@@ -11,31 +11,31 @@
     }
 
     let { value = $bindable(), addingLang = $bindable(false), className = "", onInput = () => {} }: Props = $props();
-    let parsed = parseMultilangString(value)
-    if(parsed["en"] === undefined){
-        parsed["en"] = parsed["xx"]
-        delete parsed["xx"]
-    }
-    let valueObject: {[code:string]:string} = $state(parsed)
-    const updateValue = () => {
-        for(let lang in valueObject){
-            if(valueObject[lang] === "" && lang !== selectedLang && lang!=="en" ){
-                delete valueObject[lang]
+
+    // Overridden locally while a newly added language has no text yet.
+    let valueObject: {[code:string]:string} = $derived(parseMultilangString(value))
+
+    function commit(entries: {[code:string]:string}) {
+        const next = { ...entries }
+        for(const lang in next){
+            if(next[lang] === "" && lang !== selectedLang && lang !== "en"){
+                delete next[lang]
             }
         }
-        if(valueObject.xx){
-            delete valueObject.xx
+        delete next.xx
+        if(next.en === ""){
+            next.en = ' '
         }
-        if(valueObject.en === ""){
-            valueObject.en = ' '
-        }
-        valueObject = valueObject // force update
-        value = encodeMultilangString(valueObject)
+        valueObject = next
+        value = encodeMultilangString(next)
     }
-    updateValue()
-    $effect.pre(() => {
-        valueObject = parseMultilangString(value)
-    });
+
+    // Untagged legacy text becomes the English entry.
+    const initial = parseMultilangString(value)
+    if(initial.en === undefined){
+        initial.en = initial.xx
+    }
+    commit(initial)
 </script>
 
 <div class="flex flex-wrap max-w-fit p-1 gap-2">
@@ -43,7 +43,7 @@
         {#if lang !== 'xx'}
             <Button size="sm" variant={selectedLang === lang ? 'primary' : 'outline'} className={selectedLang === lang ? '' : 'text-subtext'} aria-pressed={selectedLang === lang} onclick={() => {
                 selectedLang = lang
-                updateValue()
+                commit(valueObject)
             }}>{toLangName(lang)}</Button>
         {/if}
     {/each}
@@ -53,7 +53,7 @@
         {#each languageCodes as lang}
             {#if toLangName(lang) !== lang}
                 <Button size="sm" variant="outline" className="text-subtext" onclick={() => {
-                    valueObject[lang] = ""
+                    valueObject = { ...valueObject, [lang]: "" }
                     selectedLang = lang
                     addingLang = false
                 }}>{toLangName(lang)}</Button>
@@ -61,7 +61,7 @@
         {/each}
     </div>
 {/if}
-<Textarea autocomplete="off" commitMode="input" bind:value={valueObject[selectedLang]} onInput={() => {
-    updateValue()
+<Textarea autocomplete="off" commitMode="input" value={valueObject[selectedLang]} oncommit={(text) => {
+    commit({ ...valueObject, [selectedLang]: text })
     onInput()
 }} className={className} />

@@ -8,7 +8,7 @@
     import type { Chat, ChatFolder, character } from "src/ts/storage/database.svelte";
     import { newChatModelDefaults } from "src/ts/storage/database.svelte";
     import { ensureChatHydrated } from "src/ts/storage/chatStorage";
-    import { DBState, ReloadGUIPointer } from 'src/ts/stores.svelte';
+    import { DBState } from 'src/ts/stores.svelte';
     import { selectedCharID, chatDeselected } from "src/ts/stores.svelte";
 
     import Button from "../UI/components/Button.svelte";
@@ -107,7 +107,6 @@
         const folder = chara.chatFolders[index]
         if (!folder) return
         folder.folded = !folder.folded
-        $ReloadGUIPointer += 1
     }
 
     function createNewFolder() {
@@ -117,7 +116,6 @@
             name: `New Folder ${folders.length + 1}`,
             folded: false,
         }, ...folders]
-        $ReloadGUIPointer += 1
     }
 
     async function createNewChat() {
@@ -132,7 +130,6 @@
         }
         try {
             await createPersistedChat(chara, newChat)
-            $ReloadGUIPointer += 1
         } catch (error) {
             alertError(error)
         }
@@ -183,7 +180,6 @@
             return
         }
         changeChatTo(0)
-        $ReloadGUIPointer += 1
         chara.chats = chara.chats.filter(item => item.id !== chatId)
         void requestImmediateSave()
     }
@@ -254,9 +250,9 @@
             onReorder={reorderFolders}
         >
             {#each chara.chatFolders as folder, i (folder.id)}
-            {@const folderColorStyle = getFolderColorStyle(folder.color)}
-            {@const folderChats = chatsByFolder.get(folder.id) ?? []}
-            {@const FolderGlyph = folderIconComponent(folder.icon) ?? (folder.folded ? FolderIcon : FolderOpenIcon)}
+            {const folderColorStyle = $derived(getFolderColorStyle(folder.color))}
+            {const folderChats = $derived(chatsByFolder.get(folder.id) ?? [])}
+            {const FolderGlyph = $derived(folderIconComponent(folder.icon) ?? (folder.folded ? FolderIcon : FolderOpenIcon))}
             <div data-sortable-key={folder.id} data-risu-chat-folder-id={folder.id}
                 class="risu-folder-section flex flex-col mb-1"
                 style:--risu-folder-color={folderColorStyle.accent}>
@@ -306,8 +302,8 @@
                     <div></div>
                     {:else}
                     {#each folderChats as chat (chat.id)}
-                    {@const chatIdx = chatIndexes.get(chat) ?? -1}
-                    {@const renameController = new InlineEditableNameController()}
+                    {const chatIdx = $derived(chatIndexes.get(chat) ?? -1)}
+                    {const renameController = $derived(new InlineEditableNameController())}
                     <div role="button" tabindex="0" data-tree-item data-inline-rename-row data-risu-chat-idx={chatIdx} data-sortable-chat-id={chat.id} data-sortable-no-scale onclick={() => changeChatTo(chatIdx)} onkeydown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault()
@@ -332,7 +328,7 @@
             onReorder={syncChatOrderFromDom}
         >
             {#each chara.chats as chat, i (chat.id)}
-            {@const renameController = new InlineEditableNameController()}
+            {const renameController = $derived(new InlineEditableNameController())}
             {#if chat.folderId == null || isOrphanFolder(chat.folderId)}
             <div role="button" tabindex="0" data-tree-item data-inline-rename-row data-risu-chat-idx={i} data-sortable-chat-id={chat.id} data-sortable-no-scale onclick={() => changeChatTo(i)} onkeydown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {

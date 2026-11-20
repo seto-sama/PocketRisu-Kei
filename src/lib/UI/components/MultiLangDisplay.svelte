@@ -30,10 +30,7 @@
         return "xx"
     })
 
-    let selectedLang = $state("")
-    $effect.pre(() => {
-        selectedLang = defaultLang
-    });
+    let selectedLang = $derived(defaultLang)
 
     let sortedLangs = $derived.by(() => {
         const keys = Object.keys(valueObject)

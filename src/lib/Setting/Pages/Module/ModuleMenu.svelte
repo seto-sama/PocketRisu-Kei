@@ -42,8 +42,6 @@
                 secondkey: "",
                 selective: false
             })
-
-            currentModule.lorebook = currentModule.lorebook
         }
     }
 
@@ -60,8 +58,6 @@
                 secondkey: "",
                 selective: false,
             })
-
-            currentModule.lorebook = currentModule.lorebook
         }
     }
 
@@ -115,8 +111,6 @@
                 out: "",
                 type: "editinput"
             })
-
-            currentModule.regex = currentModule.regex
         }
     }
 
@@ -128,8 +122,6 @@
                 comment: '',
                 effect: []
             })
-
-            currentModule.trigger = currentModule.trigger
         }
     }
 

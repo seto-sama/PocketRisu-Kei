@@ -1,3 +1,6 @@
+import { untrack } from 'svelte';
+import type { Attachment } from 'svelte/attachments';
+
 interface IncrementalListOptions {
     pageSize: number;
     rootMargin?: string;
@@ -21,59 +24,44 @@ export function createIncrementalList(options: IncrementalListOptions) {
         displayCount = pageSize;
     }
 
-    function observeSentinel(node: HTMLElement, initialTotal: number) {
-        let total = initialTotal;
-        let observer: IntersectionObserver | null = null;
-        let destroyed = false;
-        const supportsObservation = typeof IntersectionObserver !== 'undefined';
+    const observeSentinel = (total: number): Attachment<HTMLElement> => (node) => {
+        if(typeof IntersectionObserver === 'undefined'){
+            displayCount = total;
+            return;
+        }
 
+        let destroyed = false;
         const observe = () => {
             if(destroyed){
                 return;
             }
             if(displayCount < total){
-                observer?.observe(node);
+                observer.observe(node);
             }
             else {
-                observer?.unobserve(node);
+                observer.unobserve(node);
             }
         };
+        const observer = new IntersectionObserver((entries) => {
+            if(!entries[0]?.isIntersecting){
+                return;
+            }
+            observer.unobserve(node);
+            displayCount = Math.min(displayCount + pageSize, total);
+            queueMicrotask(observe);
+        }, {
+            root: options.getRoot?.(node) ?? null,
+            rootMargin,
+            threshold: 0,
+        });
+        // Re-run only when total changes, not on every page load.
+        untrack(observe);
 
-        if(!supportsObservation){
-            displayCount = total;
-        }
-        else {
-            observer = new IntersectionObserver((entries) => {
-                if(!entries[0]?.isIntersecting){
-                    return;
-                }
-                observer?.unobserve(node);
-                displayCount = Math.min(displayCount + pageSize, total);
-                queueMicrotask(observe);
-            }, {
-                root: options.getRoot?.(node) ?? null,
-                rootMargin,
-                threshold: 0,
-            });
-            observe();
-        }
-
-        return {
-            update(nextTotal: number) {
-                total = nextTotal;
-                if(supportsObservation){
-                    observe();
-                }
-                else {
-                    displayCount = total;
-                }
-            },
-            destroy() {
-                destroyed = true;
-                observer?.disconnect();
-            },
+        return () => {
+            destroyed = true;
+            observer.disconnect();
         };
-    }
+    };
 
     return {
         slice,

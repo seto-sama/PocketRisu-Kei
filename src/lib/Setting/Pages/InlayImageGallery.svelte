@@ -457,8 +457,8 @@
       {:else}
         <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
           {#each displayedItems as item (item.id)}
-            {@const statusLabel = getStatusLabel(item)}
-            {@const characterName = getCharacterName(item)}
+            {const statusLabel = $derived(getStatusLabel(item))}
+            {const characterName = $derived(getCharacterName(item))}
             <div
               class="relative group aspect-[2/3] rounded-lg overflow-hidden bg-darkbg border cursor-pointer select-none transition-colors
                 {selection.has(item.id) ? 'border-lightborderc' : 'border-darkborderc hover:border-lightborderc/70'}"
@@ -563,7 +563,7 @@
         </div>
 
         {#if hasMore}
-          <div use:observePagingSentinel={sortedItems.length} class="flex items-center justify-center py-10">
+          <div {@attach observePagingSentinel(sortedItems.length)} class="flex items-center justify-center py-10">
             <LoaderCircleIcon class="size-7 animate-spin text-primary" />
           </div>
         {/if}

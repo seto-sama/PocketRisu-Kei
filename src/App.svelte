@@ -41,6 +41,7 @@
     import Toaster from './lib/UI/components/Toaster.svelte';
     import RequestStatusToaster from './lib/UI/components/RequestStatusToaster.svelte';
     import { onDestroy } from 'svelte'
+    import type { Attachment } from 'svelte/attachments'
     import { createKeepAliveAudio } from './ts/keepAliveAudio'
     import { PRODUCT_NAME } from './ts/branding'
     import { ensureBookmarkCatalog } from './ts/bookmarks/bookmarkService'
@@ -68,7 +69,7 @@
 
     function openCharacterGrid() {
         gridOpen = true
-        if ($DynamicGUI) sideBarStore.set(false)
+        if (DynamicGUI.current) sideBarStore.set(false)
     }
 
     function closeCharacterGrid() {
@@ -78,7 +79,7 @@
     function openServerDrive() {
         if (!serverDriveAvailable) return
         driveOpen = true
-        if ($DynamicGUI) sideBarStore.set(false)
+        if (DynamicGUI.current) sideBarStore.set(false)
     }
 
     function handleDialogKeydown(event: KeyboardEvent) {
@@ -88,15 +89,13 @@
         event.stopPropagation()
     }
 
-    function focusOverlay(node: HTMLElement) {
+    const focusOverlay: Attachment<HTMLElement> = (node) => {
         let active = true
         queueMicrotask(() => {
             if (active) node.focus({ preventScroll: true })
         })
-        return {
-            destroy() {
-                active = false
-            },
+        return () => {
+            active = false
         }
     }
 
@@ -109,7 +108,7 @@
     })
 
     $effect(() => {
-        if (!$DynamicGUI || !$settingsOpen) return
+        if (!DynamicGUI.current || !$settingsOpen) return
         sideBarClosing.set(false)
         sideBarStore.set(false)
     })
@@ -171,10 +170,10 @@
     {:else}
         <div
             class="risu-local-stack relative flex h-full w-full min-w-0"
-            inert={$settingsOpen || ($DynamicGUI && gridOpen)}
-            aria-hidden={$settingsOpen || ($DynamicGUI && gridOpen)}
+            inert={$settingsOpen || (DynamicGUI.current && gridOpen)}
+            aria-hidden={$settingsOpen || (DynamicGUI.current && gridOpen)}
         >
-            {#if !$DynamicGUI}
+            {#if !DynamicGUI.current}
                 <Sidebar
                     openGrid={openCharacterGrid}
                     openDrive={openServerDrive}
@@ -186,11 +185,11 @@
         </div>
 
         {#if gridOpen && !$settingsOpen}
-            {#if !$mdViewport}
+            {#if !mdViewport.current}
                 <div
                     class="risu-layer-local-focus fixed inset-0 h-dvh w-full min-w-0 overflow-hidden bg-lightbg outline-none"
                     tabindex="-1"
-                    use:focusOverlay
+                    {@attach focusOverlay}
                     onkeydown={handleDialogKeydown}
                     role="dialog"
                     aria-modal="true"
@@ -216,7 +215,7 @@
             <div
                 class="risu-layer-local-focus fixed inset-0 h-dvh w-full overflow-hidden bg-lightbg outline-none"
                 tabindex="-1"
-                use:focusOverlay
+                {@attach focusOverlay}
                 onkeydown={handleDialogKeydown}
                 role="dialog"
                 aria-modal="true"
@@ -226,7 +225,7 @@
             </div>
         {/if}
 
-        {#if $DynamicGUI}
+        {#if DynamicGUI.current}
             <div
                 class="risu-layer-local-focus inset-0 h-dvh w-full flex-row items-center"
                 class:fixed={$sideBarStore}

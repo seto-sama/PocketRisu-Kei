@@ -477,7 +477,7 @@
                     }}
                 >
                     {#each visibleItemIndexes as index (index)}
-                        {@const renameController = new InlineEditableNameController()}
+                        {const renameController = $derived(new InlineEditableNameController())}
                         <div role="button" tabindex="0"
                             data-sortable-key={String(index)}
                             data-sortable-no-scale

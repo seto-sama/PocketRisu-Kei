@@ -46,10 +46,10 @@
           <!-- Translate Button -->
           <span
             class="inline-flex"
-            use:handleDualAction={{
+            {@attach handleDualAction({
               onMainAction: () => onToggleTranslation(false),
               onAlternativeAction: () => onToggleTranslation(true),
-            }}
+            })}
           >
             <IconButton
               disabled={summaryResultState.isProcessing || !summaryResultState.result}

@@ -71,16 +71,16 @@
             suppressMenuClick = false;
         }, 0);
     }
-    if(mdViewport.matches() && $SettingsMenuIndex === -1){
+    if(mdViewport.current && $SettingsMenuIndex === -1){
         $SettingsMenuIndex = 16
     }
 
 </script>
 <div class="setting-bg h-full w-full flex justify-center rs-setting-cont">
     <div class="h-full max-w-4xl w-full flex relative rs-setting-cont-2">
-        {#if $mdViewport || $SettingsMenuIndex === -1}
+        {#if mdViewport.current || $SettingsMenuIndex === -1}
             <div class="flex h-full flex-col bg-darkbg p-4 pt-8 gap-2 overflow-y-auto relative rs-setting-cont-3 shrink-0"
-                class:w-full={!$mdViewport}
+                class:w-full={!mdViewport.current}
             >
                 <IconButtonGroup
                     size="lg"
@@ -136,14 +136,14 @@
                     </button>
                 {/each}
                 </IconButtonGroup>
-                {#if !$mdViewport}
+                {#if !mdViewport.current}
                     <button data-risu-dialog-close class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
                         settingsOpen.set(false)
                     }}> <CircleXIcon size={DBState.db.settingsCloseButtonSize} /> </button>
                 {/if}
             </div>
         {/if}
-        {#if $mdViewport || $SettingsMenuIndex !== -1}
+        {#if mdViewport.current || $SettingsMenuIndex !== -1}
             {#key $SettingsMenuIndex}
                 <div class="grow py-6 px-4 flex flex-col text-maintext overflow-y-auto relative rs-setting-cont-4 risu-list-action-scroll-root risu-surface-light min-w-0">
                     <div class="w-full max-w-2xl mx-auto flex flex-col">
@@ -184,7 +184,7 @@
             </div>
             {/key}
             <button data-risu-dialog-close class="absolute top-2 right-2 risu-interactive-accent text-maintext" onclick={() => {
-                if($mdViewport){
+                if(mdViewport.current){
                     settingsOpen.set(false)
                 }
                 else{

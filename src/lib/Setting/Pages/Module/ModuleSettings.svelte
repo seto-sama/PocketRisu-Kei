@@ -457,7 +457,7 @@
             configure={openPersonaSettings}
         >
             {#snippet itemContent(index)}
-                {@const persona = DBState.db.personas[index]}
+                {const persona = $derived(DBState.db.personas[index])}
                 <div class="mr-2 h-7 w-7 shrink-0 overflow-hidden rounded-md">
                     {#if persona.icon && !DBState.db.hideAllImages}
                         {#await getCharImage(persona.icon, 'css') then imageStyle}
