@@ -40,9 +40,9 @@
         "[&_svg]:shrink-0 [&_svg]:pointer-events-none";
 
     const variantClasses: Record<ButtonVariant, string> = {
-        default:     'bg-button text-maintext border border-darkborderc risu-interactive-surface-solid',
+        default:     'bg-button text-maintext border border-darkborderc hover:bg-selected',
         outline:     'bg-transparent text-maintext border border-darkborderc risu-interactive-surface',
-        secondary:   'bg-darkbg text-maintext border border-darkborderc risu-interactive-surface-solid',
+        secondary:   'bg-darkbg text-maintext border border-darkborderc hover:bg-selected',
         ghost:       'bg-transparent text-maintext border border-transparent risu-interactive-surface',
         destructive: 'bg-danger/20 text-danger border border-danger/40 hover:bg-danger/30',
         attention:   'bg-highlight/20 text-highlight border border-highlight/40 hover:bg-highlight/30',

@@ -98,7 +98,7 @@
                 role="option"
                 aria-selected={selected}
                 data-selected={selected}
-                class="risu-selectable-row wheel-picker-option flex w-full cursor-pointer select-none items-center justify-center rounded-sm text-sm text-maintext"
+                class="risu-interactive-surface wheel-picker-option flex w-full cursor-pointer select-none items-center justify-center rounded-sm text-sm text-maintext"
                 onclick={() => onSelect(option.value)}
             >
                 {option.label}
@@ -128,15 +128,14 @@
         scroll-snap-align: center;
     }
 
+    /* The padding insets the highlight so neighbouring options read as separate rows. */
     .wheel-picker-option {
         height: var(--wheel-picker-row-height, 1.75rem);
+        padding: 0.125rem;
+        background-clip: content-box;
     }
 
     .wheel-picker-option:focus-visible {
         outline: none;
-    }
-
-    .wheel-picker-option::before {
-        inset: 0.125rem;
     }
 </style>

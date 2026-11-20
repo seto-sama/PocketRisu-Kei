@@ -715,7 +715,7 @@
         <DropdownMenu.Root onOpenChange={(open) => { void loadFolderMenu(path, open) }}>
             <DropdownMenu.Trigger disabled={disabled}>
                 {#snippet child({ props })}
-                    <IconButton {...props} {...actionProps()} size="default" className="risu-selectable-row hover:text-subtext" tooltipSide="bottom" title={language.serverDrive.childFolders}><ChevronRightIcon /></IconButton>
+                    <IconButton {...props} {...actionProps()} size="default" className="risu-interactive-surface hover:text-subtext" tooltipSide="bottom" title={language.serverDrive.childFolders}><ChevronRightIcon /></IconButton>
                 {/snippet}
             </DropdownMenu.Trigger>
             <DropdownMenu.Content class={menuClass}>
@@ -796,14 +796,14 @@
             {#if mdViewport.current}{@render navigationButtons()}{/if}
             <nav class="mx-2 flex min-w-0 flex-1 items-center rounded-md bg-lightbg px-1 py-0.5" aria-label={language.serverDrive.path}>
                 <div class="flex min-w-0 flex-1 items-center overflow-x-auto">
-                    <IconButton {...actionProps()} {...(inTrash ? {} : dropProps(addressRoot))} data-selected={dropPath === addressRoot} size="default" tooltipSide="bottom" className="risu-selectable-row text-maintext hover:text-maintext"
+                    <IconButton {...actionProps()} {...(inTrash ? {} : dropProps(addressRoot))} data-selected={dropPath === addressRoot} size="default" tooltipSide="bottom" className="risu-interactive-surface text-maintext hover:text-maintext"
                         title={inTrash ? language.trash : inPrivate ? language.serverDrive.privateFolder : language.serverDrive.driveRoot} onclick={() => refresh(addressRoot)}>
                         {#if inTrash}<Trash2Icon />{:else if inPrivate}<BriefcaseIcon />{:else}<HardDriveIcon />{/if}
                     </IconButton>
                     {@render folderDropdown(addressRoot)}
                     {#each parts.slice(addressRootDepth) as part, index}
                         {const path = $derived(parts.slice(0, addressRootDepth + index + 1).join('/'))}
-                        <button {...dropProps(path)} data-selected={dropPath === path} class="risu-selectable-row h-6 shrink-0 rounded-md px-1.5 text-xs" disabled={disabled} onclick={() => refresh(path)}>{part}</button>
+                        <button {...dropProps(path)} data-selected={dropPath === path} class="risu-interactive-surface h-6 shrink-0 rounded-md px-1.5 text-xs" disabled={disabled} onclick={() => refresh(path)}>{part}</button>
                         {@render folderDropdown(path)}
                     {/each}
                 </div>
@@ -848,7 +848,7 @@
                                         <ContextMenu.Root onOpenChange={(open) => { if (open) ensureSelected(entry) }}>
                                             <ContextMenu.Trigger disabled={disabled}>
                                                 {#snippet child({ props })}
-                                                    <button {...props} {...(entry.type === 'directory' ? dropProps(entry.path) : {})} type="button" tabindex="0" class="risu-selectable-row drive-entry flex min-h-24 min-w-0 select-none flex-col items-center gap-2 rounded-md border border-transparent px-2 py-3 text-[11px]" class:opacity-50={cutPaths.has(entry.path) || (pick && entry.type === 'file' && !canPick(entry))} data-selected={selectedPathSet.has(entry.path) || dropPath === entry.path} data-drive-entry={entry.path}
+                                                    <button {...props} {...(entry.type === 'directory' ? dropProps(entry.path) : {})} type="button" tabindex="0" class="risu-interactive-surface drive-entry flex min-h-24 min-w-0 select-none flex-col items-center gap-2 rounded-md border border-transparent px-2 py-3 text-[11px]" class:opacity-50={cutPaths.has(entry.path) || (pick && entry.type === 'file' && !canPick(entry))} data-selected={selectedPathSet.has(entry.path) || dropPath === entry.path} data-drive-entry={entry.path}
                                                         aria-label={entry.name} aria-pressed={selectedPathSet.has(entry.path)} disabled={disabled}
                                                         draggable={!disabled && !inTrash} ondragstart={event => startEntryDrag(event, entry)} ondragend={endEntryDrag}
                                                         onclick={(event) => selectEntry(event, entry)} ondblclick={() => activate(entry)}

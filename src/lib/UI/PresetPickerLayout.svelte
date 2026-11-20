@@ -344,7 +344,7 @@
                             name: organizationKind === 'tag' ? language.presetUntagged : language.presetUncategorized,
                         }] : []),
                     ] as folder}
-                        <button class="risu-selectable-row w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
+                        <button class="risu-interactive-surface w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
                             data-selected={selectedFolder === folder.id}
                             class:folder-drop-target={itemDropTarget === folder.id}
                             ondragover={(e) => dragItemOverFolder(folder.id, e)}
@@ -379,7 +379,7 @@
                     onDragEnd={() => { draggingFolderId = null }}
                 >
                 {#each folders as folder (folder.id)}
-                    <div class="risu-selectable-row group w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
+                    <div class="risu-interactive-surface group w-full h-9 flex items-center gap-2 rounded-md px-2 py-2 text-sm text-maintext"
                         data-sortable-key={folder.sortable === false ? undefined : folder.id}
                         data-sortable-no-scale
                         data-selected={selectedFolder === folder.id}
@@ -482,7 +482,7 @@
                             data-sortable-key={String(index)}
                             data-sortable-no-scale
                             data-inline-rename-row={itemRenameable ? '' : undefined}
-                            class="risu-selectable-row preset-picker-item w-full h-9 min-w-0 flex items-center rounded-md text-left text-maintext px-2"
+                            class="risu-interactive-surface preset-picker-item w-full h-9 min-w-0 flex items-center rounded-md text-left text-maintext px-2"
                             data-selected={index === selectedItemIndex}
                             class:cursor-grab={!!onMoveItem || allowFolderAssignmentDrag}
                             onclick={() => onSelectItem(index)}
@@ -515,7 +515,7 @@
                     {#if showNoneOption}
                         <button
                             type="button"
-                            class="risu-selectable-row w-full h-9 flex items-center rounded-md text-left px-2 text-sm text-subtext"
+                            class="risu-interactive-surface w-full h-9 flex items-center rounded-md text-left px-2 text-sm text-subtext"
                             data-selected={noneSelected}
                             data-preset-select-none
                             onclick={onSelectNone}

@@ -268,7 +268,7 @@
                             toggleChatFolder(i)
                         }
                     }}
-                    class="chat-folder-header risu-folder-header risu-selectable-row text-maintext cursor-pointer"
+                    class="chat-folder-header risu-folder-header risu-interactive-surface text-maintext cursor-pointer"
                 >
                     <FolderGlyph size={chatFolderIconSize} class="risu-folder-icon mr-2 shrink-0" />
                     <InlineEditableName
@@ -309,7 +309,7 @@
                             event.preventDefault()
                             changeChatTo(chatIdx)
                         }
-                    }} class="risu-selectable-row risu-chats flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer" data-selected={chatIdx === getChatPage(chara) && !$chatDeselected}>
+                    }} class="risu-interactive-surface risu-chats flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer" data-selected={chatIdx === getChatPage(chara) && !$chatDeselected}>
                         <InlineEditableName size="row" controller={renameController} bind:value={chat.name} editorLeadingInset="row" onActivate={() => changeChatTo(chatIdx)} />
                         {@render chatActions(chat, renameController)}
                     </div>
@@ -336,7 +336,7 @@
                     changeChatTo(i)
                 }
             }}
-            class="risu-selectable-row flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer"
+            class="risu-interactive-surface flex h-8 min-w-0 shrink-0 items-center rounded-md text-maintext px-2 py-0.5 cursor-pointer"
             data-selected={i === getChatPage(chara) && !$chatDeselected}>
                 <InlineEditableName size="row" controller={renameController} bind:value={chara.chats[i].name} editorLeadingInset="row" onActivate={() => changeChatTo(i)} />
                 {@render chatActions(chat, renameController)}

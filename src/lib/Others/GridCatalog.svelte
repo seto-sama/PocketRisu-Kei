@@ -346,7 +346,7 @@
                             {const CustomIcon = $derived(displayMode === 'icon' ? folderIconComponent(entry.folder.icon) : undefined)}
                             {const FolderGlyph = $derived(CustomIcon ?? (expanded ? FolderOpenIcon : FolderIcon))}
                             <div data-sidebar-order-key={entry.folder.id} data-sidebar-kind="folder" data-sortable-no-scale class="risu-folder-section flex flex-col" style:--risu-folder-color={getFolderColorStyle(entry.folder.color).accent}>
-                                <div class="risu-folder-header min-h-9 risu-selectable-row text-maintext">
+                                <div class="risu-folder-header min-h-9 risu-interactive-surface text-maintext">
                                     <button class="character-order-handle flex min-w-0 grow items-center py-1 text-left" aria-expanded={expanded} onclick={() => toggleFolder(entry.folder.id)}>
                                         {#if displayMode === 'image' && entry.folder.imgFile}
                                             <span

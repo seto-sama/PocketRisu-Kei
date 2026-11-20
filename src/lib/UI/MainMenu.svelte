@@ -148,7 +148,7 @@
         {language.relatedLinks}
       </h1>
         <div class="grid w-full grid-cols-1 gap-4 py-2 md:grid-cols-2">
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://github.com/PocketRisu/PocketRisu")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -161,7 +161,7 @@
               <GithubIcon class={relatedLinkIconClass} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://github.com/seto-sama/PocketRisu-Kei/issues/new")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -174,7 +174,7 @@
               <SendIcon class={relatedLinkIconClass} strokeWidth={1} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://discord.gg/Exy3NrqkGm")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
@@ -187,7 +187,7 @@
               <SendIcon class={relatedLinkIconClass} strokeWidth={1} />
             </div>
           </button>
-          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface-strong hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
+          <button class="group relative flex min-h-35 flex-col justify-center overflow-hidden rounded-2xl border border-lightborderc/10 bg-darkbg p-6 text-left transition-all duration-300 hover:-translate-y-1 risu-interactive-border-subtle risu-interactive-surface hover:shadow-xl hover:shadow-darkbg/50" onclick={() => {
             openURL("https://arca.live/b/characterai")
           }}>
             <div class="relative z-10 w-[68%] sm:w-[70%]">
